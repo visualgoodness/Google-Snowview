@@ -1,7 +1,11 @@
+
+
+
+
 <!doctype html>
 <html lang="en">
 	<head>
-		<title>three.js canvas - particles - random</title>
+		<title>Google Snowview prototype</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
 		<style>
@@ -18,8 +22,6 @@
 	</head>
 	<body>	
 		<div id="map_canvas" style="width: 425px; height: 400px;float:left"></div>
-
-
 		<script src="js/Three.js"></script>
 		<script src="js/Snow.js"></script>
 		<script src="js/RequestAnimationFrame.js"></script>
@@ -27,22 +29,32 @@
 		<link href="http://code.google.com/apis/maps/documentation/javascript/examples/default.css" rel="stylesheet" type="text/css" />
 		<script src="//maps.googleapis.com/maps/api/js?sensor=false" type="text/javascript"></script>
 		<script>
-		
+			
+
+			/* this was built quick and dirty... so forgive the sloppiness and keep an eye out for memory leaks etc */
+
 
 			var map;
+
+			//staring location
 			var startLoc = {lat:40.746895,lng:-73.991005}
+
   			var startMap = new google.maps.LatLng(startLoc.lat,startLoc.lng);
 
+
+  			/*this is the dimensions for each face of the skybox. It is also the dimensions of the images that are pulled from the gmaps api. Larger dimesions will give a larger, higher res textures etc. I also noticed that the google watermark is the same size, regardless of the image dimensions, so if you pull down large enough images, the watermark appears pretty small and less noticeable. For eg. a 400x400 image will have a huge watermark compared to a 1200x1200 image */
   			var boxSize = 1200;
 
 			var container, stats;
-			var camera, scene, renderer, group, particle;
+			var camera, scene, renderer, snowGroup, particle;
 			var mouseX = 0, mouseY = 0;
 
 			var windowHalfX = window.innerWidth / 2;
 			var windowHalfY = window.innerHeight / 2;
 
 			var sceneWidth = 500, sceneHeight = 400;
+
+			var snowflakeCount = 1500;
 
 			var texture_placeholder,
 			isUserInteracting = false,
@@ -67,7 +79,7 @@
 
 			function init() {
 
-				//build map
+				//build google map
 				var mapOptions = {
 					center: startMap,
 					zoom: 16,
@@ -76,24 +88,18 @@
 				};
 			    map = new google.maps.Map(document.getElementById('map_canvas'),
 				        mapOptions);
-			   	// getPanoramaByLocation will return the nearest pano when the
 				// given radius is 50 meters or less.
 				google.maps.event.addListener(map, 'click', function(event) {
-				    //sv.getPanoramaByLocation(event.latLng, 50, processSVData);
+				    //user clicked the map and picked a location, build the skybox
 				    initSkybox(event.latLng);
 				});
 
+				//end build map
 				
 
-
-			
-
-				//end build map
-
-
+				//set up the threejs scene
 				container = document.createElement( 'div' );
 				document.body.appendChild( container );
-
 
 				camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 1, 3000 );
 				scene = new THREE.Scene();
@@ -101,28 +107,20 @@
 				var PI2 = Math.PI * 2;
 
 
-
-				pMaterial = new THREE.ParticleBasicMaterial({
-			        color: 0xFFFFFF,
-			        size: 20,
-			        map: THREE.ImageUtils.loadTexture(
-			            "assets/imaSnowflake.png"
-			        ),
-			        blending: THREE.AdditiveBlending,
-			        transparent: true
-			    });
-
-				//Add snow particles
-			
+				/*
+					Uncomment the line below to turn on webgl. It doesnt seem that it would be too far-fetched to create this with webgl and have it use the canvas
+					version as a fallback for unsupported browsers. Currently, enabling webgl will throw a browser security error (crossdoman silliness on the gmaps images... probably caused by threejs using getImageData and/or putImageData). But if you end up pulling the images from google to a backend for processing first, this shouldnt be an issue (in theory).
+				*/
 
 				//renderer = new THREE.WebGLRenderer();
 				renderer = new THREE.CanvasRenderer();
 
+
 				renderer.setSize( sceneWidth, sceneHeight );
 				container.appendChild( renderer.domElement );
 
-				group = new THREE.Object3D();
-				scene.add(group);
+				snowGroup = new THREE.Object3D();
+				scene.add(snowGroup);
 
 				//stats
 				stats = new Stats();
@@ -154,17 +152,17 @@
 				context.fillRect( 0, 0, texture_placeholder.width, texture_placeholder.height );
 		
 				var fov = 90;
-				var latitude = initted ? latLng.lat() : latLng.lat;//40.74823233074709
-				var longitude =  initted ? latLng.lng() : latLng.lng;//-73.99162173271179
-
+				var latitude = initted ? latLng.lat() : latLng.lat;
+				var longitude =  initted ? latLng.lng() : latLng.lng;
 				initted  = true;
+
 				//headings are [front,left,back,right]
 				var headings = [1,90,180,270];
+
 				var imgSize = boxSize+'x'+boxSize;
 
 				//link example
 				//http://maps.googleapis.com/maps/api/streetview?size=600x600&location=40.720032,%20-73.988354&fov=100&heading=270&pitch=0&sensor=false
-				
 				var materials = [
 					loadTexture( 'http://maps.googleapis.com/maps/api/streetview?size='+imgSize+'&location='+latitude+',%20'+longitude+'&fov='+(fov+2)+'&heading='+headings[3]+'&pitch=0&sensor=false' ), // right
 					loadTexture( 'http://maps.googleapis.com/maps/api/streetview?size='+imgSize+'&location='+latitude+',%20'+longitude+'&fov='+fov+'&heading='+headings[1]+'&pitch=0&sensor=false' ), // left
@@ -186,16 +184,14 @@
 
 
 			function initSnow(isShaking){
-				scene.remove(group);
-				group = null;
+				scene.remove(snowGroup);
+				snowGroup = null;
 				particles = [];
-				group = new THREE.Object3D();
-				scene.add(group);
-				for ( var i = 0; i < 1500; i++ ) {
-					//particle = new THREE.Particle( new THREE.ParticleBasicMaterial( pMaterial));
+				snowGroup = new THREE.Object3D();
+				scene.add(snowGroup);
+				for ( var i = 0; i < snowflakeCount; i++ ) {
 
 					particle = new THREE.Particle( new THREE.ParticleBasicMaterial( pMaterial));
-					//console.log(particle.updateMatrixWorld)
 					particle.position.x = randomNumber(150,-150);
 					particle.position.y = randomNumber(150,-150);
 					particle.position.z = randomNumber(150,-150);
@@ -213,18 +209,15 @@
 					particle.drag = 1; 
 			
 					particles.push(particle);
-					group.add(particle);
+					snowGroup.add(particle);
 				}
 
 			}
 
 
-
-			//
-
-
+			//this was a work in progress when i left it. It currently looks like crap, but I think a step in the right direction
 			function shake(){
-				//alert('doesnt do anything yet cause you jerks made me post it before i got this working')
+				
 				initSnow(true);
 				shaking = true;
 				setInterval(function(){
@@ -244,6 +237,7 @@
 
 			}
 
+			//helper function for pulling the skybox images and making them into three.js textures.
 			function loadTexture( path ) {
 
 				var texture = new THREE.Texture( texture_placeholder );
@@ -264,6 +258,9 @@
 
 			}
 
+
+
+			// input control events
 			function onDocumentMouseDown( event ) {
 
 				event.preventDefault();
@@ -285,7 +282,6 @@
 					lon = ( onPointerDownPointerX - event.clientX ) * 0.1 + onPointerDownLon;
 					lat = ( event.clientY - onPointerDownPointerY ) * 0.1 + onPointerDownLat;
 					render();
-
 				}
 			}
 
@@ -337,16 +333,13 @@
 
 			}
 
+
+			// animation loop
 			function animate() {
 				for(var i = 0; i<particles.length; i++)
 				{
 				
 					var particle = particles[i];
-					//upate particle properties
-					if(shaking){
-						//particle.drag = 1.1;
-						//particle.velocity = new THREE.Vector3(5,-2,5);
-					}
 					particle.velocity.multiplyScalar(particle.drag); 
 					particle.velocity.addSelf(particle.gravity);
 					particle.position.addSelf(particle.velocity);
@@ -360,13 +353,15 @@
 						else if(z<-150) z+=300; 
 					}				
 				}
-
+					
 				requestAnimationFrame( animate );
 
 				render();
 				stats.update();
 
 			}
+
+			// threejs rendering function
 			function render() {
 
 				lat = Math.max( - 85, Math.min( 85, lat ) );

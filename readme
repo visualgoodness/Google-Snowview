@@ -1,0 +1,1 @@
+This is a proof of concept to combine a 3d snow effect on top of a google streetview. It works by utilizing three.js to create a skybox which is textured with images pulled from the google maps api. The 3d snow particle system is also created with three.js
